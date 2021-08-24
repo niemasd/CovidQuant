@@ -14,7 +14,7 @@ VERSION = '1.0.0'
 PROGRESS_PERCENTAGE = 10
 PROGRESS_NUM_READS = 100000
 RULE_DELIMS = ['==', '!=']
-NUCS = {'A','C','G','T'}
+NUCS = {'A','C','G','T','-'}
 ALIGNMENT_EXT_TO_QUAL = {
     'bam': 'rb',
     'cram': 'rc',
@@ -110,17 +110,23 @@ class Tree:
                 continue
 
             # valid alignment, so increment counts
-            aligned_pairs = alignment.get_aligned_pairs(matches_only=True) # ignore indels (Pangolin seems to)
+            aligned_pairs = alignment.get_aligned_pairs()
             seq = alignment.query_sequence
             for read_pos, ref_pos in aligned_pairs:
-                if read_pos is None or ref_pos is None:
-                    raise ValueError("Encountered None in SAM alignment")
-                pos_val = (ref_pos, seq[read_pos])
+                if ref_pos is None: # ignore insertions wrt reference (Pangolin seems to)
+                    continue
+                if read_pos is None:
+                    pos_val = (ref_pos, '-')
+                else:
+                    pos_val = (ref_pos, seq[read_pos])
+                #if ref_pos in set(range(18420,18440)): # TODO DELETE
+                #    print((read_pos, ref_pos, pos_val[1]))
                 if pos_val in tree.pos_val_to_nodes:
                     nodes_to_inc = tree.pos_val_to_nodes[pos_val]
                     count_to_inc = 1. / len(nodes_to_inc)
                     for node in nodes_to_inc:
                         node.read_count += count_to_inc
+        #exit() # TODO DELETE
 
     def quantify_lineages(self):
         # count num lineage nodes below each node (including the node itself)
