@@ -1,3 +1,6 @@
+# PangoLEARN rules file
+*.zip
+
 # alignment files
 *.bam
 *.cram

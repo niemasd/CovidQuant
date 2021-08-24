@@ -2,13 +2,15 @@
 
 # imports
 from collections import deque
+from datetime import datetime
 from gzip import open as gopen
 from os.path import isfile
 from pysam import AlignmentFile
-from sys import stdin
+from sys import stderr, stdin
 from zipfile import ZipFile
 
 # useful constants
+VERSION = '1.0.0'
 RULE_DELIMS = ['==', '!=']
 NUCS = {'A','C','G','T'}
 ALIGNMENT_EXT_TO_QUAL = {
@@ -21,6 +23,14 @@ ALIGNMENT_EXT_TO_QUAL = {
 ERROR_FILE_NOT_FOUND = "File not found"
 ERROR_INVALID_ALIGNMENT_EXTENSION = "Invalid alignment file extension"
 ERROR_INVALID_PANGOLEARN_DECISION_TREE_RULES = "Invalid PangoLEARN Decision Tree Rules file"
+
+# return the current time as a string
+def get_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# log printer
+def print_log(s, end='\n'):
+    print("[%s] %s" % (get_time(), s), file=stderr, end=end)
 
 # helper tree node class
 class Node:
@@ -77,15 +87,22 @@ class Tree:
         curr_node.lineage = lineage
 
 # parse PangoLEARN decision tree rules txt
-def parse_pangolearn_rules_txt(s):
-    tree = Tree()
-    for line in s.splitlines():
+def parse_pangolearn_rules_txt(s, progress_percentage=10):
+    tree = Tree(); lines = s.splitlines(); num_lines = len(lines); finished = progress_percentage
+    print_log("Parsing %d lines from PangoLEARN rules file..." % num_lines)
+    for i,line in enumerate(lines):
         if line.startswith('['):
             continue
         l = line.strip()
         if len(l) == 0:
             continue
         tree.add_pangolin_rule(l)
+        percent_done = 100 * (i+1) / num_lines
+        if percent_done >= finished:
+            print_log("Finished parsing PangoLEARN rule line %d (%d%% done)" % (i, int(percent_done)))
+            finished += progress_percentage
+    print_log("Finished parsing PangoLEARN rules file")
+    exit()
     return tree
 
 # main execution
@@ -102,8 +119,12 @@ if __name__ == "__main__":
     input_alignment_ext = args.input_alignment.lower().split('.')[-1].strip()
     if input_alignment_ext not in ALIGNMENT_EXT_TO_QUAL:
         raise ValueError("%s: %s" % (ERROR_INVALID_ALIGNMENT_EXTENSION, input_alignment_ext))
+    print_log("CovidQuant v%s" % VERSION)
+    print_log("Input Alignment: %s" % args.input_alignment)
+    print_log("Input PangoLEARN Decision Tree Rules: %s" % args.pangolearn_rules)
 
     # load decision tree file
+    print_log("Loading PangoLEARN decision tree rules...")
     if args.pangolearn_rules.lower().endswith('.zip'):
         rules_zip = ZipFile(args.pangolearn_rules)
         fns = [fn.strip() for fn in rules_zip.namelist() if fn.strip().lower().endswith('tree_rules.txt')]
