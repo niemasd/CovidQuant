@@ -1,3 +1,6 @@
+# CovidQuant output
+*.tsv
+
 # PangoLEARN rules file
 *.zip
 
