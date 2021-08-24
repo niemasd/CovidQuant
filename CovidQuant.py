@@ -102,16 +102,25 @@ class Tree:
 
     def add_read_counts_from_sam(self, sam):
         for i,alignment in enumerate(sam.fetch(until_eof=True)):
+            # progress and check that alignment is primary mapped
             i_plus_1 = i+1
             if i_plus_1 % PROGRESS_NUM_READS == 0:
                 print_log("Parsing alignment %d..." % i_plus_1)
             if alignment.is_unmapped or alignment.is_secondary or alignment.is_supplementary:
                 continue
-            for read_pos, ref_pos, val in alignment.get_aligned_pairs(with_seq=True):
-                pos_val = (ref_pos, val)
+
+            # valid alignment, so increment counts
+            aligned_pairs = alignment.get_aligned_pairs(matches_only=True) # ignore indels (Pangolin seems to)
+            seq = alignment.query_sequence
+            for read_pos, ref_pos in aligned_pairs:
+                if read_pos is None or ref_pos is None:
+                    raise ValueError("Encountered None in SAM alignment")
+                pos_val = (ref_pos, seq[read_pos])
                 if pos_val in tree.pos_val_to_nodes:
-                    for node in tree.pos_val_to_nodes[pos_val]:
-                        node.read_count += 1
+                    nodes_to_inc = tree.pos_val_to_nodes[pos_val]
+                    count_to_inc = 1. / len(nodes_to_inc)
+                    for node in nodes_to_inc:
+                        node.read_count += count_to_inc
 
     def quantify_lineages(self):
         # count num lineage nodes below each node (including the node itself)
@@ -121,7 +130,7 @@ class Tree:
                 node.num_lineage_nodes_below += 1
 
         # quantify lineage abundances
-        abundance = dict()
+        abundance = dict(); num_nodes_per_lineage = dict()
         for node in self.traverse_nodes_preorder():
             # trickle down count at current node to children if applicable
             orig_read_count = node.read_count
@@ -132,10 +141,14 @@ class Tree:
             if hasattr(node, 'lineage'):
                 if node.lineage in abundance:
                     abundance[node.lineage] += node.read_count
+                    num_nodes_per_lineage[node.lineage] += 1
                 else:
                     abundance[node.lineage] = node.read_count
+                    num_nodes_per_lineage[node.lineage] = 1
 
         # normalize lineage abundances and return
+        for lineage in abundance:
+            abundance[lineage] /= num_nodes_per_lineage[lineage]
         tot = sum(abundance.values())
         for lineage in abundance:
             abundance[lineage] /= tot
