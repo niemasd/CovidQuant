@@ -34,43 +34,44 @@ def get_time():
 def print_log(s, end='\n'):
     print("[%s] %s" % (get_time(), s), file=stderr, end=end); stderr.flush()
 
-# helper tree node class
-class Node:
-    def __init__(self):
-        self.children = dict() # children[(pos,delim,val)] = child Node
-        self.read_count = 0
+# perform levelorder traversal on decision tree edges
+def traverse_edges_levelorder(root):
+    q = deque(); q.append(root)
+    while len(q) != 0:
+        n = q.popleft()
+        for l in n:
+            yield (n, n[l], l) # (u,v,l)
+        q.extend(n.values())
 
-# helper tree class, adapted from TreeSwift
-class Tree:
-    def __init__(self):
-        self.root = Node()
-        self.pos_val_to_nodes = dict() # map (position, nucleotide) tuple to nodes in the tree
+# perform postorder traversal on decision tree nodes
+def traverse_nodes_postorder(root):
+    s1 = deque(); s2 = deque(); s1.append(root)
+    while len(s1) != 0:
+        n = s1.pop(); s2.append(n); s1.extend(n.values())
+    while len(s2) != 0:
+        yield s2.pop()
 
-    def traverse_edges_levelorder(self):
-        q = deque(); q.append(self.root)
-        while len(q) != 0:
-            n = q.popleft()
-            for l in n.children:
-                yield (n, n.children[l], l) # (u,v,l)
-            q.extend(n.children.values())
-    
-    def traverse_nodes_postorder(self):
-        s1 = deque(); s2 = deque(); s1.append(self.root)
-        while len(s1) != 0:
-            n = s1.pop(); s2.append(n); s1.extend(n.children.values())
-        while len(s2) != 0:
-            yield s2.pop()
+# perform preorder traversal on decision tree nodes
+def traverse_nodes_preorder(root):
+    s = deque(); s.append(root)
+    while len(s) != 0:
+        n = s.pop(); yield n; s.extend(n.values())
 
-    def traverse_nodes_preorder(self):
-        s = deque(); s.append(self.root)
-        while len(s) != 0:
-            n = s.pop(); yield n; s.extend(n.children.values())
+# parse PangoLEARN decision tree rules txt
+def parse_pangolearn_rules_txt(s):
+    root = dict(); lines = s.splitlines(); num_lines = len(lines); finished = PROGRESS_PERCENTAGE
+    print_log("Parsing %d lines from PangoLEARN rules file..." % num_lines)
+    for i,line in enumerate(lines):
+        # skip lines starting with '[' and empty lines
+        if line.startswith('['):
+            continue
+        l = line.strip()
+        if len(l) == 0:
+            continue
 
-    def add_pangolin_rule(self, pangolin_rule):
-        curr_node = self.root
-        lineage, decisions = [v.strip() for v in pangolin_rule.split('\t')]
-        decisions = decisions.split(',')
-        for decision in decisions:
+        # add this rule to the decision tree
+        curr_node = root; lineage, decisions = [v.strip() for v in l.split('\t')]
+        for decision in decisions.split(','):
             delim = None; delim_start = None
             for d in RULE_DELIMS:
                 try:
@@ -79,104 +80,80 @@ class Tree:
                     pass
             if delim is None:
                 raise ValueError("Invalid decision: %s" % decision)
-            pos = int(decision[:delim_start])
-            val = decision[delim_start+len(delim):].strip().strip("'")
-            label = (pos, delim, val)
-            if label in curr_node.children:
-                curr_node = curr_node.children[label]
-            else:
-                child = Node(); curr_node.children[label] = child
-                if delim == '==':
-                    pos_val_pairs = [(pos,val.upper())]
-                elif delim == '!=':
-                    pos_val_pairs = [(pos,nuc) for nuc in NUCS-{val.upper()}]
-                else:
-                    raise ValueError("Unsupported: %s" % delim)
-                for pos_val in pos_val_pairs:
-                    if pos_val in self.pos_val_to_nodes:
-                        self.pos_val_to_nodes[pos_val].add(child)
-                    else:
-                        self.pos_val_to_nodes[pos_val] = {child}
-                curr_node = child
-        curr_node.lineage = lineage
+            pos = int(decision[:delim_start]); val = decision[delim_start+len(delim):].strip().strip("'"); label = (pos, delim, val)
+            if label not in curr_node:
+                curr_node[label] = dict()
+            curr_node = curr_node[label]
+        curr_node['_LINEAGE'] = lineage
 
-    def add_read_counts_from_sam(self, sam):
-        for i,alignment in enumerate(sam.fetch(until_eof=True)):
-            # progress and check that alignment is primary mapped
-            i_plus_1 = i+1
-            if i_plus_1 % PROGRESS_NUM_READS == 0:
-                print_log("Parsing alignment %d..." % i_plus_1)
-            if alignment.is_unmapped or alignment.is_secondary or alignment.is_supplementary:
-                continue
-
-            # valid alignment, so increment counts
-            aligned_pairs = alignment.get_aligned_pairs()
-            seq = alignment.query_sequence
-            for read_pos, ref_pos in aligned_pairs:
-                if ref_pos is None: # ignore insertions wrt reference (Pangolin seems to)
-                    continue
-                if read_pos is None:
-                    pos_val = (ref_pos, '-')
-                else:
-                    pos_val = (ref_pos, seq[read_pos])
-                #if ref_pos in set(range(18420,18440)): # TODO DELETE
-                #    print((read_pos, ref_pos, pos_val[1]))
-                if pos_val in tree.pos_val_to_nodes:
-                    nodes_to_inc = tree.pos_val_to_nodes[pos_val]
-                    count_to_inc = 1. / len(nodes_to_inc)
-                    for node in nodes_to_inc:
-                        node.read_count += count_to_inc
-        #exit() # TODO DELETE
-
-    def quantify_lineages(self):
-        # count num lineage nodes below each node (including the node itself)
-        for node in self.traverse_nodes_postorder():
-            node.num_lineage_nodes_below = sum(child.num_lineage_nodes_below for child in node.children.values())
-            if hasattr(node, 'lineage'):
-                node.num_lineage_nodes_below += 1
-
-        # quantify lineage abundances
-        abundance = dict(); num_nodes_per_lineage = dict()
-        for node in self.traverse_nodes_preorder():
-            # trickle down count at current node to children if applicable
-            orig_read_count = node.read_count
-            for child in node.children.values():
-                count_to_trickle = orig_read_count * child.num_lineage_nodes_below / node.num_lineage_nodes_below
-                node.read_count -= count_to_trickle; child.read_count += count_to_trickle
-            # if this node is a lineage node, update abundance
-            if hasattr(node, 'lineage'):
-                if node.lineage in abundance:
-                    abundance[node.lineage] += node.read_count
-                    num_nodes_per_lineage[node.lineage] += 1
-                else:
-                    abundance[node.lineage] = node.read_count
-                    num_nodes_per_lineage[node.lineage] = 1
-
-        # normalize lineage abundances and return
-        for lineage in abundance:
-            abundance[lineage] /= num_nodes_per_lineage[lineage]
-        tot = sum(abundance.values())
-        for lineage in abundance:
-            abundance[lineage] /= tot
-        return abundance
-
-# parse PangoLEARN decision tree rules txt
-def parse_pangolearn_rules_txt(s):
-    tree = Tree(); lines = s.splitlines(); num_lines = len(lines); finished = PROGRESS_PERCENTAGE
-    print_log("Parsing %d lines from PangoLEARN rules file..." % num_lines)
-    for i,line in enumerate(lines):
-        if line.startswith('['):
-            continue
-        l = line.strip()
-        if len(l) == 0:
-            continue
-        tree.add_pangolin_rule(l)
+        # output progress update
         percent_done = 100 * (i+1) / num_lines
         if percent_done >= finished:
-            print_log("Finished parsing PangoLEARN rule line %d (%d%% done)..." % (i, int(percent_done)))
-            finished += PROGRESS_PERCENTAGE
+            print_log("Finished parsing PangoLEARN rule line %d (%d%% done)..." % (i, int(percent_done))); finished += PROGRESS_PERCENTAGE
     print_log("Finished parsing PangoLEARN rules file")
-    return tree
+    return root
+
+# count symbols at each reference position from SAM/BAM/CRAM file
+def read_counts_from_sam(sam):
+    counts = dict() # counts[ref_pos][symbol] = count
+    for i,alignment in enumerate(sam.fetch(until_eof=True)):
+        # progress and check that alignment is primary mapped
+        i_plus_1 = i+1
+        if i_plus_1 % PROGRESS_NUM_READS == 0:
+            print_log("Parsing alignment %d..." % i_plus_1)
+        if alignment.is_unmapped or alignment.is_secondary or alignment.is_supplementary:
+            continue
+        
+        # valid alignment, so increment counts
+        aligned_pairs = alignment.get_aligned_pairs(); seq = alignment.query_sequence
+        for read_pos, ref_pos in aligned_pairs:
+            # ignore insertions wrt reference (Pangolin seems to)
+            if ref_pos is None:
+                continue
+
+            # get current read symbol
+            if read_pos is None:
+                symbol = '-'
+            else:
+                symbol = seq[read_pos].upper()
+
+            # increment count
+            if ref_pos not in counts:
+                counts[ref_pos] = dict()
+            if symbol not in counts[ref_pos]:
+                counts[ref_pos][symbol] = 0
+            counts[ref_pos][symbol] += 1
+    return counts
+
+# best lineage (for sanity check)
+def best_lineage(tree_root, counts):
+    curr_node = tree_root
+    while '_LINEAGE' not in curr_node:
+        curr_counts = list()
+        for label in curr_node:
+            if label == '_LINEAGE':
+                continue
+            ref_pos, delim, symbol = label; label_count = 0
+            print(label)
+            for i in range(ref_pos-5, ref_pos+6):
+                print('%d\t%s' % (i,counts[i]))
+            if ref_pos in counts:
+                if delim == '==' and symbol in counts[ref_pos]:
+                    label_count = counts[ref_pos][symbol]
+                elif delim == '!=':
+                    for v in counts[ref_pos]:
+                        if v != symbol:
+                            label_count += counts[ref_pos][v]
+            curr_counts.append((label_count,label))
+        print(sorted(curr_counts, reverse=True))
+        curr_node = curr_node[sorted(curr_counts, reverse=True)[0][1]]
+    if len(curr_node) > 1:
+        print("NOT A LEAF")
+    return curr_node['_LINEAGE']
+
+# quantify lineages
+def quantify_lineages(tree_root, counts):
+    print(best_lineage(tree_root,counts)); exit() # TODO
 
 # main execution
 if __name__ == "__main__":
@@ -204,22 +181,22 @@ if __name__ == "__main__":
         fns = [fn.strip() for fn in rules_zip.namelist() if fn.strip().lower().endswith('tree_rules.txt')]
         if len(fns) != 1:
             raise ValueError(ERROR_INVALID_PANGOLEARN_DECISION_TREE_RULES)
-        tree = parse_pangolearn_rules_txt(rules_zip.open(fns[0]).read().decode())
+        tree_root = parse_pangolearn_rules_txt(rules_zip.open(fns[0]).read().decode())
     elif args.pangolearn_rules.lower().endswith('.txt.gz'):
-        tree = parse_pangolearn_rules_txt(gopen(args.pangolearn_rules).read().decode())
+        tree_root = parse_pangolearn_rules_txt(gopen(args.pangolearn_rules).read().decode())
     elif args.pangolearn_rules.lower().endswith('.txt'):
-        tree = parse_pangolearn_rules_txt(open(args.pangolearn_rules).read())
+        tree_root = parse_pangolearn_rules_txt(open(args.pangolearn_rules).read())
     else:
         raise ValueError(ERROR_INVALID_PANGOLEARN_DECISION_TREE_RULES)
 
-    # parse SAM/BAM and update tree
+    # parse SAM/BAM to count symbols
     print_log("Parsing alignment file...")
     sam = AlignmentFile(args.input_alignment, ALIGNMENT_EXT_TO_QUAL[input_alignment_ext])
-    tree.add_read_counts_from_sam(sam)
+    counts = read_counts_from_sam(sam)
 
     # quantify lineage abundances
     print_log("Quantifying lineage abundances...")
-    abundances = tree.quantify_lineages()
+    abundances = quantify_lineages(tree_root, counts)
     print_log("Finished quantifying lineage abundances")
 
     # output lineage abundances
