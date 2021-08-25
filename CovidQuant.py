@@ -27,7 +27,7 @@ CORRECT_NUC = { # https://github.com/cov-lineages/pangoLEARN/issues/13#issue-902
     'A': 'C',
     'C': 'G',
     'G': 'T',
-    'T': 'A',
+    'T': '-',
 }
 
 # error messages
@@ -185,7 +185,32 @@ def best_lineage(tree_root, counts):
 
 # quantify lineages
 def quantify_lineages(tree_root, counts):
-    print(best_lineage(tree_root,counts)); exit() # TODO
+    # count number of reads mapping to each edge in decision tree
+    abundance = dict(); node_to_count = {id(tree_root):0}; dist_from_root = {id(tree_root):0}; lineage_to_num_edges = dict()
+    for u,v,l in traverse_edges_levelorder(tree_root):
+        ref_pos, delim, symbol = l
+        dist_from_root[id(v)] = 1 + dist_from_root[id(u)]
+        node_to_count[id(v)] = node_to_count[id(u)]
+        if delim == '==' and symbol in counts[ref_pos]:
+            node_to_count[id(v)] += counts[ref_pos][symbol]
+        elif delim == '!=':
+            for x in counts[ref_pos]:
+                if x != symbol:
+                    node_to_count[id(v)] += counts[ref_pos][x]
+        if '_LINEAGE' in v:
+            if v['_LINEAGE'] not in abundance:
+                abundance[v['_LINEAGE']] = 0; lineage_to_num_edges[v['_LINEAGE']] = 0
+            abundance[v['_LINEAGE']] += node_to_count[id(v)]; lineage_to_num_edges[v['_LINEAGE']] += dist_from_root[id(v)]
+
+    # normalize abundances by total number of edges (i.e., transform to "average coverage per decision")
+    for lineage in abundance:
+        abundance[lineage] /= lineage_to_num_edges[lineage]
+
+    # normalize to sum to 1
+    tot = sum(abundance.values())
+    for lineage in abundance:
+        abundance[lineage] /= tot
+    return abundance
 
 # main execution
 if __name__ == "__main__":
@@ -231,7 +256,6 @@ if __name__ == "__main__":
     if args.assign_top_lineage:
         print_log("Finding single best lineage...")
         print_log("Best lineage: %s" % best_lineage(tree_root,counts))
-    exit()
 
     # quantify lineage abundances
     print_log("Quantifying lineage abundances...")
