@@ -9,6 +9,7 @@
 *.bam
 *.cram
 *.sam
+*.fas
 *.fasta
 *.fasta.gz
 *.fastq

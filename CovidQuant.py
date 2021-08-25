@@ -6,7 +6,7 @@ from datetime import datetime
 from gzip import open as gopen
 from os.path import isfile
 from pysam import AlignmentFile
-from sys import stderr, stdin
+from sys import setrecursionlimit, stderr, stdin
 from zipfile import ZipFile
 
 # useful constants
@@ -19,6 +19,15 @@ ALIGNMENT_EXT_TO_QUAL = {
     'bam': 'rb',
     'cram': 'rc',
     'sam': 'r',
+}
+INDENT = '  '
+setrecursionlimit(10000)
+CORRECT_NUC = { # https://github.com/cov-lineages/pangoLEARN/issues/13#issue-902259254
+    '-': 'A',
+    'A': 'C',
+    'C': 'G',
+    'G': 'T',
+    'T': 'A',
 }
 
 # error messages
@@ -40,14 +49,15 @@ def traverse_edges_levelorder(root):
     while len(q) != 0:
         n = q.popleft()
         for l in n:
-            yield (n, n[l], l) # (u,v,l)
-        q.extend(n.values())
+            if l != '_LINEAGE':
+                yield (n, n[l], l) # (u,v,l)
+                q.append(n[l])
 
 # perform postorder traversal on decision tree nodes
 def traverse_nodes_postorder(root):
     s1 = deque(); s2 = deque(); s1.append(root)
     while len(s1) != 0:
-        n = s1.pop(); s2.append(n); s1.extend(n.values())
+        n = s1.pop(); s2.append(n); s1.extend(set(n.values())-{'_LINEAGE'})
     while len(s2) != 0:
         yield s2.pop()
 
@@ -55,7 +65,29 @@ def traverse_nodes_postorder(root):
 def traverse_nodes_preorder(root):
     s = deque(); s.append(root)
     while len(s) != 0:
-        n = s.pop(); yield n; s.extend(n.values())
+        n = s.pop(); yield n
+        for l in n:
+            s.append(n[l])
+
+# draw the decision tree as lines of decisions
+def print_decision_tree(root, num_indent=0):
+    for l in root:
+        if l == '_LINEAGE':
+            print('%s- Lineage: %s' % (num_indent*INDENT, root[l]))
+        else:
+            pos,delim,symbol = l; print('%s- %s%s%s' % (num_indent*INDENT, pos, delim, symbol)); print_decision_tree(root[l], num_indent+1)
+
+# print a GraphViz visualization of a decision tree
+def graphviz(root):
+    print("digraph G {")
+    for u,v,l in traverse_edges_levelorder(root):
+        u_label = id(u); v_label = id(v)
+        if '_LINEAGE' in u:
+            u_label = '%s (%s)' % (id(u),u['_LINEAGE'])
+        if '_LINEAGE' in v:
+            v_label = '%s (%s)' % (id(v),v['_LINEAGE'])
+        print('"%s" -> "%s" [label="%s"];' % (u_label,v_label,l))
+    print("}")
 
 # parse PangoLEARN decision tree rules txt
 def parse_pangolearn_rules_txt(s):
@@ -80,7 +112,9 @@ def parse_pangolearn_rules_txt(s):
                     pass
             if delim is None:
                 raise ValueError("Invalid decision: %s" % decision)
-            pos = int(decision[:delim_start]); val = decision[delim_start+len(delim):].strip().strip("'"); label = (pos, delim, val)
+            pos = int(decision[:delim_start]); val = decision[delim_start+len(delim):].strip().strip("'")
+            #label = (pos, delim, val)
+            label = (pos, delim, CORRECT_NUC[val]) # TODO REPLACE WITH (pos,delim,val) ONCE PANGOLEARN FIXES THEIR TREE
             if label not in curr_node:
                 curr_node[label] = dict()
             curr_node = curr_node[label]
@@ -117,6 +151,10 @@ def read_counts_from_sam(sam):
             else:
                 symbol = seq[read_pos].upper()
 
+            # ignore N (Pangolin replaces it with ref symbol, but Pangolin uses a single consensus)
+            if symbol == 'N':
+                continue
+
             # increment count
             if ref_pos not in counts:
                 counts[ref_pos] = dict()
@@ -134,9 +172,6 @@ def best_lineage(tree_root, counts):
             if label == '_LINEAGE':
                 continue
             ref_pos, delim, symbol = label; label_count = 0
-            print(label)
-            for i in range(ref_pos-5, ref_pos+6):
-                print('%d\t%s' % (i,counts[i]))
             if ref_pos in counts:
                 if delim == '==' and symbol in counts[ref_pos]:
                     label_count = counts[ref_pos][symbol]
@@ -145,10 +180,7 @@ def best_lineage(tree_root, counts):
                         if v != symbol:
                             label_count += counts[ref_pos][v]
             curr_counts.append((label_count,label))
-        print(sorted(curr_counts, reverse=True))
         curr_node = curr_node[sorted(curr_counts, reverse=True)[0][1]]
-    if len(curr_node) > 1:
-        print("NOT A LEAF")
     return curr_node['_LINEAGE']
 
 # quantify lineages
@@ -163,6 +195,7 @@ if __name__ == "__main__":
     parser.add_argument('-i', '--input_alignment', required=True, type=str, help="Input Alignment File (SAM/BAM)")
     parser.add_argument('-p', '--pangolearn_rules', required=True, type=str, help="Input PangoLEARN Decision Tree Rules") # https://github.com/cov-lineages/pangoLEARN/blob/master/pangoLEARN/data/decision_tree_rules.zip
     parser.add_argument('-o', '--output_abundances', required=False, type=str, default='stdout', help="Output Abundances (TSV)")
+    parser.add_argument('--assign_top_lineage', action='store_true', help="Assign top lineage using decision tree (will only be included in log output)")
     args = parser.parse_args()
     for fn in [args.input_alignment, args.pangolearn_rules]:
         if not isfile(fn):
@@ -193,6 +226,12 @@ if __name__ == "__main__":
     print_log("Parsing alignment file...")
     sam = AlignmentFile(args.input_alignment, ALIGNMENT_EXT_TO_QUAL[input_alignment_ext])
     counts = read_counts_from_sam(sam)
+
+    # find the single best lineage using the simple decision tree algorithm
+    if args.assign_top_lineage:
+        print_log("Finding single best lineage...")
+        print_log("Best lineage: %s" % best_lineage(tree_root,counts))
+    exit()
 
     # quantify lineage abundances
     print_log("Quantifying lineage abundances...")
