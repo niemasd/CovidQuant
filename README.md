@@ -30,7 +30,7 @@ for f in *.fastq.gz ; do minimap2 -a -x sr reference.fasta $f 2> $(echo $f | cut
 ## Run CovidQuant
 
 ```bash
-CovidQuant.py -i <TRIMMED_REALIGNED_BAM> -p <PANGOLEARN_RULES> -o <ABUNDANCE_TSV> --assign_top_lineage
+CovidQuant.py -i <TRIMMED_REALIGNED_BAM> -p <PANGOLEARN_RULES> -o <ABUNDANCE_TSV> --assign_top_lineage 2> <COVIDQUANT_LOG>
 ```
 
 Batch:
