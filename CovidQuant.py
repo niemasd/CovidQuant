@@ -43,6 +43,13 @@ def get_time():
 def print_log(s, end='\n'):
     print("[%s] %s" % (get_time(), s), file=stderr, end=end); stderr.flush()
 
+# normalize dictionary such that values sum to 1
+def normalize(d):
+    out = dict(); tot = sum(d.values())
+    for k in d:
+        out[k] = d[k]/tot
+    return out
+
 # perform levelorder traversal on decision tree edges
 def traverse_edges_levelorder(root):
     q = deque(); q.append(root)
@@ -254,7 +261,8 @@ if __name__ == "__main__":
 
     # quantify lineage abundances
     print_log("Quantifying lineage abundances...")
-    abundances = quantify_lineages(tree_root, counts)
+    probabilities = quantify_lineages(tree_root, counts)
+    abundances = normalize(probabilities)
     print_log("Finished quantifying lineage abundances")
 
     # output lineage abundances
@@ -263,7 +271,7 @@ if __name__ == "__main__":
         from sys import stdout as out
     else:
         out = open(args.output_abundances, 'w')
-    out.write("Lineage\tAbundance\n")
+    out.write("Lineage\tPath Probability\tAbundance\n")
     for lineage in sorted(abundances.keys(), key=lambda x: abundances[x], reverse=True):
-        out.write("%s\t%f\n" % (lineage, abundances[lineage]))
+        out.write("%s\t%f\t%f\n" % (lineage, probabilities[lineage], abundances[lineage]))
     out.close()
