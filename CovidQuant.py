@@ -197,7 +197,7 @@ def quantify_lineages(tree_root, counts):
         if '_LINEAGE' in curr_node:
             if curr_node['_LINEAGE'] not in out:
                 out[curr_node['_LINEAGE']] = 0
-            out[curr_node['_LINEAGE']] = max(curr_prob, out[curr_node['_LINEAGE']]); return
+            out[curr_node['_LINEAGE']] += curr_prob; return
         for label in curr_node:
             ref_pos, delim, symbol = label
             if ref_pos in counts:
