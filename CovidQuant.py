@@ -31,6 +31,7 @@ CORRECT_NUC = { # https://github.com/cov-lineages/pangoLEARN/issues/13#issue-902
     'G': 'T',
     'T': '-',
 }
+RELEASES_URL = 'https://api.github.com/repos/niemasd/CovidQuant/tags'
 
 # error messages
 ERROR_FILE_NOT_FOUND = "File not found"
