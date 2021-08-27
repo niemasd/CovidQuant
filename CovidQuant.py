@@ -4,9 +4,11 @@
 from collections import deque
 from datetime import datetime
 from gzip import open as gopen
+from json import load as jload
 from os.path import isfile
 from pysam import AlignmentFile
-from sys import setrecursionlimit, stderr, stdin
+from sys import argv, setrecursionlimit, stderr, stdin
+from urllib.request import urlopen
 from zipfile import ZipFile
 
 # useful constants
@@ -34,6 +36,26 @@ CORRECT_NUC = { # https://github.com/cov-lineages/pangoLEARN/issues/13#issue-902
 ERROR_FILE_NOT_FOUND = "File not found"
 ERROR_INVALID_ALIGNMENT_EXTENSION = "Invalid alignment file extension"
 ERROR_INVALID_PANGOLEARN_DECISION_TREE_RULES = "Invalid PangoLEARN Decision Tree Rules file"
+
+# convert a ViralMSA version string to a tuple of integers
+def parse_version(s):
+    return tuple(int(v) for v in s.split('.'))
+
+# update CovidQuant to the newest version
+def update_covidquant():
+    tags = jload(urlopen(RELEASES_URL))
+    newest = max(tags, key=lambda x: parse_version(x['name']))
+    if parse_version(newest['name']) <= parse_version(VERSION):
+        print("CovidQuant is already at the newest version (%s)" % VERSION); exit(0)
+    old_version = VERSION; new_version = newest['name']
+    url = 'https://raw.githubusercontent.com/niemasd/CovidQuant/%s/CovidQuant.py' % newest['commit']['sha']
+    content = urlopen(url).read()
+    try:
+        with open(__file__, 'wb') as f:
+            f.write(content)
+    except PermissionError:
+        print("ERROR: Received a permission error when updating CovidQuant. Perhaps try running as root?", file=stderr); exit(1)
+    print("Successfully updated CovidQuant %s --> %s" % (old_version, new_version)); exit(0)
 
 # return the current time as a string
 def get_time():
@@ -214,6 +236,10 @@ def quantify_lineages(tree_root, counts):
 
 # main execution
 if __name__ == "__main__":
+    # check if user wants to update CovidQuant
+    if '-u' in argv or '--update' in argv:
+        update_covidquant()
+
     # parse args
     import argparse
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -222,6 +248,7 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output_abundances', required=False, type=str, default='stdout', help="Output Abundances (TSV)")
     parser.add_argument('--assign_top_lineage', action='store_true', help="Optional: Assign top lineage using decision tree (will only be included in log output)")
     parser.add_argument('--output_decision_coverage', required=False, type=str, default=None, help="Optional: Output coverage of each PangoLEARN genome position (TSV)")
+    parser.add_argument('-u', '--update', action="store_true", help="Update CovidQuant (current version: %s)" % VERSION)
     args = parser.parse_args()
     for fn in [args.input_alignment, args.pangolearn_rules]:
         if not isfile(fn):
