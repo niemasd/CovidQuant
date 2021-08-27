@@ -220,7 +220,8 @@ if __name__ == "__main__":
     parser.add_argument('-i', '--input_alignment', required=True, type=str, help="Input Alignment File (SAM/BAM)")
     parser.add_argument('-p', '--pangolearn_rules', required=True, type=str, help="Input PangoLEARN Decision Tree Rules") # https://github.com/cov-lineages/pangoLEARN/blob/master/pangoLEARN/data/decision_tree_rules.zip
     parser.add_argument('-o', '--output_abundances', required=False, type=str, default='stdout', help="Output Abundances (TSV)")
-    parser.add_argument('--assign_top_lineage', action='store_true', help="Assign top lineage using decision tree (will only be included in log output)")
+    parser.add_argument('--assign_top_lineage', action='store_true', help="Optional: Assign top lineage using decision tree (will only be included in log output)")
+    parser.add_argument('--output_decision_coverage', required=False, type=str, default=None, help="Optional: Output coverage of each PangoLEARN genome position (TSV)")
     args = parser.parse_args()
     for fn in [args.input_alignment, args.pangolearn_rules]:
         if not isfile(fn):
@@ -251,6 +252,20 @@ if __name__ == "__main__":
     print_log("Parsing alignment file...")
     sam = AlignmentFile(args.input_alignment, ALIGNMENT_EXT_TO_QUAL[input_alignment_ext])
     counts = read_counts_from_sam(sam)
+
+    # output coverage at each PangoLEARN genome position
+    if args.output_decision_coverage is not None:
+        print_log("Outputting coverage at each PangoLEARN decision genome position")
+        out = open(args.output_decision_coverage, 'w')
+        out.write("Position\tTotal Reads\t# A\t% A\t# C\t% C\t# G\t% G\t# T\t% T\t# -\t% -\n")
+        for ref_pos in sorted({l[0] for u,v,l in traverse_edges_levelorder(tree_root)}):
+            tmp = {'A':0, 'C':0, 'G':0, 'T':0, '-':0}
+            for k in tmp:
+                if k in counts[ref_pos]:
+                    tmp[k] = counts[ref_pos][k]
+            tot = sum(tmp.values())
+            out.write("%d\t%d\t%d\t%f\t%d\t%f\t%d\t%f\t%d\t%f\t%d\t%f\n" % (ref_pos, tot, tmp['A'], tmp['A']/tot, tmp['C'], tmp['C']/tot, tmp['G'], tmp['G']/tot, tmp['T'], tmp['T']/tot, tmp['-'], tmp['-']/tot))
+        out.close()
 
     # find the single best lineage using the simple decision tree algorithm
     if args.assign_top_lineage:
