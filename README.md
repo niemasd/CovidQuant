@@ -17,10 +17,7 @@ sudo mv CovidQuant.py /usr/local/bin/CovidQuant.py # optional step to install gl
 CovidQuant can be used as follows:
 
 ```
-usage: CovidQuant.py [-h] -i INPUT_ALIGNMENT -p PANGOLEARN_RULES
-                     [-o OUTPUT_ABUNDANCES] [--assign_top_lineage]
-                     [--output_decision_coverage OUTPUT_DECISION_COVERAGE]
-                     [-u]
+usage: CovidQuant.py [-h] -i INPUT_ALIGNMENT -p PANGOLEARN_RULES [-o OUTPUT_ABUNDANCES] [--assign_top_lineage] [--output_decision_coverage OUTPUT_DECISION_COVERAGE] [-u]
 
 optional arguments:
   -h, --help                                                     show this help message and exit
