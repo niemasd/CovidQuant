@@ -1,6 +1,7 @@
 # CovidQuant
 CovidQuant is a tool to quantify [PANGO lineage](https://cov-lineages.org/) probabilities from a mixed SARS-CoV-2 sequencing dataset (trimmed SAM/BAM) using the [PangoLEARN](https://github.com/cov-lineages/pangoLEARN) decision tree. CovidQuant loads the PangoLEARN decision tree, computes the number of reads that support each decision in the tree, and performs the following:
 
+* Compute the number of reads that support an `A`, `C`, `G`, `T`, or `-` at every reference genome position utilized by PangoLEARN
 * Assign a sample to a single PANGO lineage (much like [Pangolin](https://github.com/cov-lineages/pangolin)), but directly using a trimmed SAM/BAM (rather than from a consensus genome sequence)
 * Compute the overall probability of *every* PANGO lineage
 
