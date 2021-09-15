@@ -287,12 +287,15 @@ if __name__ == "__main__":
         out = open(args.output_decision_coverage, 'w')
         out.write("Position\tTotal Reads\t# A\t% A\t# C\t% C\t# G\t% G\t# T\t% T\t# -\t% -\n")
         for ref_pos in sorted({l[0] for u,v,l in traverse_edges_levelorder(tree_root)}):
-            tmp = {'A':0, 'C':0, 'G':0, 'T':0, '-':0}
-            for k in tmp:
-                if k in counts[ref_pos]:
-                    tmp[k] = counts[ref_pos][k]
-            tot = sum(tmp.values())
-            out.write("%d\t%d\t%d\t%f\t%d\t%f\t%d\t%f\t%d\t%f\t%d\t%f\n" % (ref_pos, tot, tmp['A'], tmp['A']/tot, tmp['C'], tmp['C']/tot, tmp['G'], tmp['G']/tot, tmp['T'], tmp['T']/tot, tmp['-'], tmp['-']/tot))
+            if ref_pos in counts:
+                tmp = {'A':0, 'C':0, 'G':0, 'T':0, '-':0}
+                for k in tmp:
+                    if k in counts[ref_pos]:
+                        tmp[k] = counts[ref_pos][k]
+                tot = sum(tmp.values())
+                out.write("%d\t%d\t%d\t%f\t%d\t%f\t%d\t%f\t%d\t%f\t%d\t%f\n" % (ref_pos, tot, tmp['A'], tmp['A']/tot, tmp['C'], tmp['C']/tot, tmp['G'], tmp['G']/tot, tmp['T'], tmp['T']/tot, tmp['-'], tmp['-']/tot))
+            else:
+                out.write("%d\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n")
         out.close()
 
     # find the single best lineage using the simple decision tree algorithm
